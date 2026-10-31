@@ -395,6 +395,8 @@ impl Engine {
             repeat,
         });
 
+        // SAFETY: `self.hwnd` is the engine window this engine belongs to and
+        // None makes WM_TIMER go to its window_proc with our timer id.
         let timer = unsafe { SetTimer(Some(self.hwnd), TIMER_DELAYED_MOVE, DELAYED_MOVE_MS, None) };
         if timer == 0
             && let Some(pending) = self.pending_move.take()
@@ -408,6 +410,7 @@ impl Engine {
             return;
         }
 
+        // SAFETY: the same window/timer pair `schedule_move` started.
         unsafe {
             let _ = KillTimer(Some(self.hwnd), TIMER_DELAYED_MOVE);
         }
@@ -439,6 +442,9 @@ impl Engine {
 
 impl Drop for Engine {
     fn drop(&mut self) {
+        // SAFETY: the engine window still exists while this box is alive
+        // (run() destroys it only after reclaiming the pointer), so stopping
+        // this engine's one timer is valid.
         unsafe {
             let _ = KillTimer(Some(self.hwnd), TIMER_DELAYED_MOVE);
         }
@@ -448,15 +454,26 @@ impl Drop for Engine {
     }
 }
 
+/// # Safety
+///
+/// Only usable as the `WNDPROC` of the engine window class: `hwnd`'s
+/// `GWLP_USERDATA` must hold the `Box::into_raw` `Engine` pointer (or 0) for as
+/// long as the window can receive messages, which `app::run` guarantees. The
+/// OS owns the parameter values for the duration of the call.
 pub unsafe extern "system" fn window_proc(
     hwnd: HWND,
     message: u32,
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
+    // SAFETY: the window lives for the duration of the call and
+    // GWLP_USERDATA stores our own pointer-sized engine handle.
     let raw = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) };
 
     if raw != 0 {
+        // SAFETY: app::run stores the Box::into_raw pointer here before any
+        // message can be dispatched and clears it before reclaiming the box,
+        // so a nonzero value is a valid, unaliased Engine on this thread.
         let engine = unsafe { &mut *(raw as *mut Engine) };
 
         match message {
@@ -477,6 +494,7 @@ pub unsafe extern "system" fn window_proc(
                 return LRESULT(0);
             }
             WM_APP_SHUTDOWN => {
+                // SAFETY: PostQuitMessage only touches this thread's queue.
                 unsafe { PostQuitMessage(0) };
                 return LRESULT(0);
             }
@@ -498,5 +516,6 @@ pub unsafe extern "system" fn window_proc(
         }
     }
 
+    // SAFETY: the parameters are the ones the OS passed to this wndproc.
     unsafe { DefWindowProcW(hwnd, message, wparam, lparam) }
 }

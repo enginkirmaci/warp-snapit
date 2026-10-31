@@ -14,6 +14,8 @@ use crate::hooks::WM_APP_SHUTDOWN;
 /// Watches `pid` on a background thread and posts a shutdown message to the
 /// engine when it exits. Returns false when the parent is already gone.
 pub fn watch(pid: u32, engine: HWND) -> bool {
+    // SAFETY: SYNCHRONIZE is the only access right needed; the returned
+    // handle is owned by the watcher thread, or closed below on spawn failure.
     let Ok(handle) = (unsafe { OpenProcess(PROCESS_SYNCHRONIZE, false, pid) }) else {
         return false;
     };
@@ -24,6 +26,8 @@ pub fn watch(pid: u32, engine: HWND) -> bool {
         .name("snapit-parent-watch".into())
         .spawn(move || {
             let handle = HANDLE(raw_handle as *mut c_void);
+            // SAFETY: `handle` is owned by this thread alone and closed here;
+            // the engine window may be gone, which only fails the post.
             unsafe {
                 let _ = WaitForSingleObject(handle, INFINITE);
                 let _ = PostMessageW(
@@ -37,6 +41,8 @@ pub fn watch(pid: u32, engine: HWND) -> bool {
         });
 
     if spawned.is_err() {
+        // SAFETY: the watcher thread was not spawned, so this thread still
+        // owns the handle and closes it here.
         unsafe {
             let _ = CloseHandle(handle);
         }

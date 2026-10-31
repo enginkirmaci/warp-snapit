@@ -5,8 +5,8 @@
 //! latest position on its own thread, exactly like the .NET `MouseService`.
 
 use std::ffi::c_void;
-use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, mpsc};
+use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock, mpsc};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
@@ -18,14 +18,15 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     VK_ESCAPE, VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_RCONTROL, VK_RMENU, VK_RSHIFT, VK_RWIN,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, DispatchMessageW, GetMessageW, KBDLLHOOKSTRUCT, MSG, MSLLHOOKSTRUCT,
-    PostMessageW, PostThreadMessageW, SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx,
-    WH_KEYBOARD_LL, WH_MOUSE_LL, WM_APP, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP,
-    WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEMOVE, WM_QUIT, WM_RBUTTONDOWN, WM_RBUTTONUP,
-    WM_SYSKEYDOWN, WM_SYSKEYUP, WM_XBUTTONDOWN, WM_XBUTTONUP, XBUTTON1, XBUTTON2,
+    CallNextHookEx, KBDLLHOOKSTRUCT, MSLLHOOKSTRUCT, PostMessageW, PostThreadMessageW,
+    SetWindowsHookExW, UnhookWindowsHookEx, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_APP, WM_KEYDOWN,
+    WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEMOVE, WM_QUIT,
+    WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_XBUTTONDOWN, WM_XBUTTONUP,
+    XBUTTON1, XBUTTON2,
 };
 
 use crate::settings::{HoldKey, MouseButton, Settings};
+use crate::win32::message_loop;
 
 // Engine window messages.
 pub const WM_APP_DRAG_START: u32 = WM_APP + 1;
@@ -40,7 +41,11 @@ static RUNTIME: OnceLock<Arc<Runtime>> = OnceLock::new();
 pub struct Runtime {
     engine: AtomicIsize,
     pub settings: Settings,
-    latest: Mutex<(i32, i32)>,
+    /// Latest pointer position, packed `x | (y << 32)` — an atomic, not a
+    /// mutex: this is written from the low-level mouse hook, which must
+    /// return faster than `LowLevelHooksTimeout` or Windows silently evicts
+    /// the hook, so nothing here may ever block on the engine thread.
+    latest: AtomicU64,
     move_posted: AtomicBool,
     pub listening: AtomicBool,
     pub holding_key: AtomicBool,
@@ -52,7 +57,7 @@ impl Runtime {
         Arc::new(Self {
             engine: AtomicIsize::new(0),
             settings,
-            latest: Mutex::new((0, 0)),
+            latest: AtomicU64::new(0),
             move_posted: AtomicBool::new(false),
             listening: AtomicBool::new(false),
             holding_key: AtomicBool::new(false),
@@ -65,10 +70,8 @@ impl Runtime {
     }
 
     pub fn latest_point(&self) -> (i32, i32) {
-        *self
-            .latest
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        let packed = self.latest.load(Ordering::Acquire);
+        (packed as u32 as i32, (packed >> 32) as u32 as i32)
     }
 
     /// Clears the coalescing flag *before* reading the point, so a move that
@@ -79,10 +82,10 @@ impl Runtime {
     }
 
     fn note_move(&self, x: i32, y: i32) {
-        *self
-            .latest
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = (x, y);
+        self.latest.store(
+            (x as u32 as u64) | ((y as u32 as u64) << 32),
+            Ordering::Release,
+        );
 
         if self
             .move_posted
@@ -99,6 +102,8 @@ impl Runtime {
             return;
         }
         let hwnd = HWND(raw as *mut c_void);
+        // SAFETY: `raw` is the engine window handle stored by set_engine;
+        // posting to it is safe whether or not it still exists.
         let _ = unsafe {
             PostMessageW(
                 Some(hwnd),
@@ -147,16 +152,28 @@ fn runtime() -> Option<&'static Arc<Runtime>> {
     RUNTIME.get()
 }
 
+/// # Safety
+///
+/// Only used as the `WH_MOUSE_LL` hook procedure installed in
+/// `run_mouse_hook_thread`: for `code >= 0`, Windows guarantees `lparam`
+/// points to a valid `MSLLHOOKSTRUCT` for the duration of the call, and the
+/// callback must not block (see the `latest` field on `Runtime`).
 unsafe extern "system" fn mouse_hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code < 0 {
+        // SAFETY: negative codes mean "pass the event on untouched"; the
+        // parameters are the OS's.
         return unsafe { CallNextHookEx(None, code, wparam, lparam) };
     }
 
     let Some(runtime) = runtime() else {
+        // SAFETY: RUNTIME is only unset before Hooks::install, where passing
+        // the event through unmodified is correct.
         return unsafe { CallNextHookEx(None, code, wparam, lparam) };
     };
 
     let message = wparam.0 as u32;
+    // SAFETY: for code >= 0, Windows passes a valid MSLLHOOKSTRUCT that stays
+    // alive for the duration of this callback.
     let data = unsafe { &*(lparam.0 as *const MSLLHOOKSTRUCT) };
 
     match message {
@@ -183,19 +200,32 @@ unsafe extern "system" fn mouse_hook(code: i32, wparam: WPARAM, lparam: LPARAM) 
         _ => {}
     }
 
+    // SAFETY: forward the event to the next hook in the chain, unchanged.
     unsafe { CallNextHookEx(None, code, wparam, lparam) }
 }
 
+/// # Safety
+///
+/// Only used as the `WH_KEYBOARD_LL` hook procedure installed in
+/// `run_keyboard_hook_thread`: for `code >= 0`, Windows guarantees `lparam`
+/// points to a valid `KBDLLHOOKSTRUCT` for the duration of the call, and the
+/// callback must not block.
 unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code < 0 {
+        // SAFETY: negative codes mean "pass the event on untouched"; the
+        // parameters are the OS's.
         return unsafe { CallNextHookEx(None, code, wparam, lparam) };
     }
 
     let Some(runtime) = runtime() else {
+        // SAFETY: RUNTIME is only unset before Hooks::install, where passing
+        // the event through unmodified is correct.
         return unsafe { CallNextHookEx(None, code, wparam, lparam) };
     };
 
     let message = wparam.0 as u32;
+    // SAFETY: for code >= 0, Windows passes a valid KBDLLHOOKSTRUCT that stays
+    // alive for the duration of this callback.
     let data = unsafe { &*(lparam.0 as *const KBDLLHOOKSTRUCT) };
     let vk = data.vkCode as u16;
 
@@ -226,6 +256,7 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARA
         }
     }
 
+    // SAFETY: forward the event to the next hook in the chain, unchanged.
     unsafe { CallNextHookEx(None, code, wparam, lparam) }
 }
 
@@ -268,6 +299,8 @@ impl Hooks {
 impl Drop for Hooks {
     fn drop(&mut self) {
         for thread_id in self.thread_ids.drain(..) {
+            // SAFETY: the ids were captured from the live hook threads; a
+            // stale id only makes the post fail.
             unsafe {
                 let _ = PostThreadMessageW(thread_id, WM_QUIT, WPARAM(0), LPARAM(0));
             }
@@ -279,6 +312,9 @@ impl Drop for Hooks {
 }
 
 fn run_mouse_hook_thread(tx: mpsc::Sender<Result<u32>>) {
+    // SAFETY: GetModuleHandleW(None) is always valid, the hook is installed
+    // and unhooked on this same thread, and its callback runs only here while
+    // the message loop below pumps.
     unsafe {
         let module = match GetModuleHandleW(None) {
             Ok(module) => module,
@@ -309,6 +345,9 @@ fn run_mouse_hook_thread(tx: mpsc::Sender<Result<u32>>) {
 }
 
 fn run_keyboard_hook_thread(tx: mpsc::Sender<Result<u32>>) {
+    // SAFETY: GetModuleHandleW(None) is always valid, the hook is installed
+    // and unhooked on this same thread, and its callback runs only here while
+    // the message loop below pumps.
     unsafe {
         let module = match GetModuleHandleW(None) {
             Ok(module) => module,
@@ -339,15 +378,5 @@ fn run_keyboard_hook_thread(tx: mpsc::Sender<Result<u32>>) {
 
         message_loop();
         let _ = UnhookWindowsHookEx(hook);
-    }
-}
-
-unsafe fn message_loop() {
-    let mut message = MSG::default();
-    while unsafe { GetMessageW(&mut message, None, 0, 0) }.0 > 0 {
-        unsafe {
-            let _ = TranslateMessage(&message);
-            DispatchMessageW(&message);
-        }
     }
 }

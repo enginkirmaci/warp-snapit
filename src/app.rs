@@ -16,8 +16,8 @@ use windows::Win32::UI::HiDpi::{
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    DefWindowProcW, DispatchMessageW, GWLP_USERDATA, GetMessageW, GetWindowLongPtrW, MSG,
-    PostMessageW, SetProcessDPIAware, SetWindowLongPtrW, TranslateMessage, UnregisterClassW,
+    DefWindowProcW, GWLP_USERDATA, GetWindowLongPtrW, PostMessageW, SetProcessDPIAware,
+    SetWindowLongPtrW, UnregisterClassW,
 };
 use windows::core::{BOOL, w};
 
@@ -41,13 +41,20 @@ impl InstanceGuard {
     fn acquire() -> Result<Option<Self>> {
         // CreateMutexW only sets the last error when the name already exists;
         // clear it first so a stale value cannot look like a second instance.
+        // SAFETY: SetLastError only writes the thread's last-error slot.
         unsafe {
             SetLastError(ERROR_SUCCESS);
         }
+        // SAFETY: no security descriptor, and `w!` is a NUL-terminated static
+        // name; the returned handle is owned below.
         let handle = unsafe { CreateMutexW(None, false, w!("Local\\DevTools.SnapIt.Rust")) }
             .context("create the SnapIt instance mutex")?;
 
+        // SAFETY: reads the last error set by the CreateMutexW above, with no
+        // intervening Win32 call.
         if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
+            // SAFETY: `handle` is the mutex handle returned above, closed
+            // exactly once on this early-exit path.
             unsafe {
                 let _ = CloseHandle(handle);
             }
@@ -60,6 +67,8 @@ impl InstanceGuard {
 
 impl Drop for InstanceGuard {
     fn drop(&mut self) {
+        // SAFETY: the handle was created in acquire, stored exclusively in
+        // this newtype, and Drop runs exactly once.
         unsafe {
             let _ = CloseHandle(self.0);
         }
@@ -106,6 +115,8 @@ pub fn run(cli: Cli) -> Result<()> {
     // Publish the engine pointer before installing hooks so an event that
     // arrives immediately is not dispatched to DefWindowProc.
     let engine_ptr = engine.as_mut() as *mut Engine;
+    // SAFETY: the window was just created on this thread and the pointer stays
+    // valid until it is cleared or reclaimed below.
     unsafe {
         SetWindowLongPtrW(engine_window, GWLP_USERDATA, engine_ptr as isize);
     }
@@ -116,6 +127,9 @@ pub fn run(cli: Cli) -> Result<()> {
         && !parent_watch::watch(pid, engine_window)
     {
         log::line(&format!("parent process {pid} not found; exiting"));
+        // SAFETY: the window exists and is not pumped yet; clearing the engine
+        // pointer before the box is dropped below keeps any message from
+        // reaching freed memory.
         unsafe {
             SetWindowLongPtrW(engine_window, GWLP_USERDATA, 0);
         }
@@ -126,6 +140,9 @@ pub fn run(cli: Cli) -> Result<()> {
     }
 
     if let Err(error) = engine.start_hooks() {
+        // SAFETY: the window exists and is not pumped yet; clearing the engine
+        // pointer before the box is dropped below keeps any message from
+        // reaching freed memory.
         unsafe {
             SetWindowLongPtrW(engine_window, GWLP_USERDATA, 0);
         }
@@ -135,6 +152,8 @@ pub fn run(cli: Cli) -> Result<()> {
         return Err(error);
     }
 
+    // SAFETY: console_ctrl stays registered until it is removed after the
+    // message loop ends, and it only touches the atomic and PostMessageW.
     unsafe {
         let _ = SetConsoleCtrlHandler(Some(console_ctrl), true);
     }
@@ -144,10 +163,11 @@ pub fn run(cli: Cli) -> Result<()> {
     let _ = Box::into_raw(engine);
 
     log::line("snapit started");
-    unsafe {
-        message_loop();
-    }
+    win32::message_loop();
 
+    // SAFETY: the message loop has ended, so no window_proc can run anymore;
+    // this block removes the ctrl handler, reclaims the raw engine box and
+    // tears the window/classes down in the reverse of the setup order.
     unsafe {
         let _ = SetConsoleCtrlHandler(Some(console_ctrl), false);
 
@@ -170,6 +190,8 @@ pub fn run(cli: Cli) -> Result<()> {
 }
 
 fn enable_dpi_awareness() {
+    // SAFETY: both calls only set this process's DPI awareness mode; the
+    // context constant is the documented pseudo-handle.
     unsafe {
         if SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2).is_err() {
             let _ = SetProcessDPIAware();
@@ -177,21 +199,34 @@ fn enable_dpi_awareness() {
     }
 }
 
+/// # Safety
+///
+/// Only registered as the `WNDPROC` of the overlay window class: Windows owns
+/// the parameter values for the duration of the call and they are not valid
+/// outside it.
 unsafe extern "system" fn overlay_proc(
     hwnd: HWND,
     message: u32,
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> windows::Win32::Foundation::LRESULT {
+    // SAFETY: the parameters are the ones the OS passed to this wndproc.
     unsafe { DefWindowProcW(hwnd, message, wparam, lparam) }
 }
 
+/// # Safety
+///
+/// Only registered via `SetConsoleCtrlHandler`: Windows calls it on its own
+/// handler thread with `_ctrl_type` owned by the OS, at any point in `run`,
+/// which the atomic read + PostMessageW body tolerates.
 unsafe extern "system" fn console_ctrl(_ctrl_type: u32) -> BOOL {
     let raw = ENGINE_WINDOW.load(Ordering::Acquire);
     if raw == 0 {
         return BOOL(0);
     }
 
+    // SAFETY: `raw` is the engine window handle published by run(); posting
+    // to it is safe whether or not the window still exists.
     let posted = unsafe {
         PostMessageW(
             Some(HWND(raw as *mut c_void)),
@@ -202,16 +237,6 @@ unsafe extern "system" fn console_ctrl(_ctrl_type: u32) -> BOOL {
     };
 
     if posted.is_ok() { BOOL(1) } else { BOOL(0) }
-}
-
-unsafe fn message_loop() {
-    let mut message = MSG::default();
-    while unsafe { GetMessageW(&mut message, None, 0, 0) }.0 > 0 {
-        unsafe {
-            let _ = TranslateMessage(&message);
-            DispatchMessageW(&message);
-        }
-    }
 }
 
 fn dump_zones(config: &Config) {

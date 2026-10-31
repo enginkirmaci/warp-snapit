@@ -45,6 +45,8 @@ impl Cornering {
             .spawn(move || worker(receiver, thread_stop, excluded))
             .ok()?;
 
+        // SAFETY: `win_event_proc` is a static fn that lives for the whole
+        // process, and the hook is unhooked in Drop on this thread.
         let hook = unsafe {
             SetWinEventHook(
                 EVENT_OBJECT_SHOW,
@@ -78,6 +80,8 @@ impl Cornering {
 
 impl Drop for Cornering {
     fn drop(&mut self) {
+        // SAFETY: `self.hook` is the hook SetWinEventHook returned, unhooked
+        // exactly once here before the worker thread is joined.
         unsafe {
             let _ = UnhookWinEvent(self.hook);
         }
@@ -91,6 +95,11 @@ impl Drop for Cornering {
     }
 }
 
+/// # Safety
+///
+/// Only installed via `SetWinEventHook` (WINEVENT_OUTOFCONTEXT): Windows calls
+/// it on the thread that pumps the installing thread's message loop, with the
+/// parameters owned by the OS for the duration of the call.
 unsafe extern "system" fn win_event_proc(
     _hook: HWINEVENTHOOK,
     event: u32,

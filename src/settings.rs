@@ -85,6 +85,12 @@ impl Color {
 
     fn parse(value: &str) -> Option<Self> {
         let hex = value.trim().trim_start_matches('#');
+        // non-ASCII can never be hex, and the byte slicing below would panic
+        // inside a multi-byte char — a user-edited "€aaaaa" must not abort
+        // startup inside serde
+        if !hex.is_ascii() {
+            return None;
+        }
         let (a, r, g, b) = match hex.len() {
             8 => (
                 u8::from_str_radix(&hex[0..2], 16).ok()?,
@@ -567,10 +573,15 @@ fn copy_missing(source: &Path, destination: &Path) {
     if destination.exists() {
         return;
     }
-    if let Some(parent) = destination.parent() {
-        let _ = fs::create_dir_all(parent);
+    if let Some(parent) = destination.parent()
+        && let Err(err) = fs::create_dir_all(parent)
+    {
+        log::line(&format!("could not create {}: {err}", parent.display()));
     }
-    let _ = fs::copy(source, destination);
+    if let Err(err) = fs::copy(source, destination) {
+        // without this the app runs on built-in defaults with no trace of why
+        log::line(&format!("could not seed {}: {err}", destination.display()));
+    }
 }
 
 /// One-time seed from the shipped defaults; existing user files win.
@@ -634,8 +645,13 @@ pub fn load_settings() -> Settings {
     let settings = Settings::default();
     if !path.exists() {
         let _ = fs::create_dir_all(snapit_root());
-        if let Ok(json) = serde_json::to_string_pretty(&settings) {
-            let _ = fs::write(&path, json);
+        if let Ok(json) = serde_json::to_string_pretty(&settings)
+            && let Err(err) = fs::write(&path, json)
+        {
+            log::line(&format!(
+                "could not write the default {}: {err}",
+                path.display()
+            ));
         }
     }
     settings
@@ -652,8 +668,12 @@ pub fn load_excluded_applications() -> Vec<ExcludedApplication> {
                 let _ = fs::create_dir_all(snapit_root());
                 if let Ok(json) =
                     serde_json::to_string_pretty(&ExcludedApplicationSettings::default())
+                    && let Err(err) = fs::write(&path, json)
                 {
-                    let _ = fs::write(&path, json);
+                    log::line(&format!(
+                        "could not write the default {}: {err}",
+                        path.display()
+                    ));
                 }
             }
             Vec::new()
@@ -771,6 +791,26 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn color_parse_takes_ascii_hex_only() {
+        // 8 *bytes* of a multi-byte string must not slice inside a char
+        assert_eq!(
+            Color::parse("#80FFFFFF"),
+            Some(Color::new(0x80, 0xFF, 0xFF, 0xFF))
+        );
+        assert_eq!(
+            Color::parse("FFFFFF"),
+            Some(Color::new(255, 0xFF, 0xFF, 0xFF))
+        );
+        assert_eq!(
+            Color::parse("  #80ffffff "),
+            Some(Color::new(0x80, 0xFF, 0xFF, 0xFF))
+        );
+        assert_eq!(Color::parse("€aaaaa"), None);
+        assert_eq!(Color::parse("RRGG"), None);
+        assert_eq!(Color::parse(""), None);
+    }
 
     #[test]
     fn parses_shipped_settings() {

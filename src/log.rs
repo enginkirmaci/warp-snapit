@@ -20,9 +20,7 @@ pub fn line(message: &str) {
         let _ = std::fs::create_dir_all(parent);
     }
 
-    let _guard = LOG_LOCK
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _guard = LOG_LOCK.lock().expect("log mutex poisoned");
     if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
         let secs = SystemTime::now()
             .duration_since(UNIX_EPOCH)
