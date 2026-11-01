@@ -1,5 +1,5 @@
 //! SnapIt — a Windows zone snapper, ported from the .NET `Tools.SnapIt`
-//! companion (vendored in DevTools). The .NET app stays as-is; this crate is
+//! companion (vendored in Warp Station). The .NET app stays as-is; this crate is
 //! a separate, standalone Rust implementation that reads the same settings
 //! and layout files.
 //!

@@ -1,4 +1,4 @@
-//! Ties the companion's lifetime to DevTools (`--parent <pid>`).
+//! Ties the companion's lifetime to Warp Station (`--parent <pid>`).
 
 use std::ffi::c_void;
 use std::thread;

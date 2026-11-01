@@ -2,10 +2,10 @@
 
 Standalone Rust port of the Windows zone-snapper companion. The .NET original
 (`Tools.SnapIt`) lives in the [SnapIt](https://github.com/enginkirmaci/SnapIt)
-repo and is vendored into
-[DevTools](https://github.com/enginkirmaci/DevTools) (`src/Tools.SnapIt`), which
-remains the default companion DevTools launches; `snapit.exe` is an alternative
-binary that can be run side by side (one at a time) for testing.
+repo and was vendored into
+[Warp Station](https://github.com/enginkirmaci/warp-station) (`src/Tools.SnapIt`)
+before the C# companion was removed; `snapit.exe` is the distributed
+binary.
 
 Distributed through [warp-suite](https://github.com/enginkirmaci/warp-suite)
 releases (Windows-only; the suite skips it on Linux).
@@ -20,16 +20,16 @@ releases (Windows-only; the suite skips it on Linux).
   release. `Esc` cancels.
 - Optionally applies `DWMWCP_DONOTROUND` to newly shown windows
   (`EnableAutomaticWindowCornering`).
-- Exits with DevTools when launched with `--parent <pid>`.
+- Exits with Warp Station when launched with `--parent <pid>`.
 
 ## Shared configuration
 
-The port reads exactly the same files as the .NET app:
+The port reads the same files as Warp Station:
 
 ```
-%USERPROFILE%\.devtools\snapit\Settings.json
-%USERPROFILE%\.devtools\snapit\ExcludedApplicationSettings.json
-%USERPROFILE%\.devtools\snapit\layouts\*.json
+%USERPROFILE%\.warp\snapit\Settings.json
+%USERPROFILE%\.warp\snapit\ExcludedApplicationSettings.json
+%USERPROFILE%\.warp\snapit\layouts\*.json
 ```
 
 That includes the .NET quirks: numbers may be strings, points/sizes are
@@ -47,7 +47,7 @@ cargo test
 
 # Windows
 cargo build --release
-target\release\snapit.exe --parent <devtools pid>
+target\release\snapit.exe --parent <warp-station pid>
 
 # Print the monitor/layout/zone math without starting the engine
 target\release\snapit.exe --dump-zones

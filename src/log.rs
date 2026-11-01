@@ -1,6 +1,6 @@
 //! Minimal file logger.
 //!
-//! DevTools starts the companion without a visible console, so stderr is
+//! Warp Station starts the companion without a visible console, so stderr is
 //! usually invisible. A small append-only log next to the settings makes
 //! startup and hook failures diagnosable without a logging framework.
 

@@ -2,7 +2,7 @@
 name = "snapit"
 version = "0.1.0"
 edition = "2024"
-description = "SnapIt — Windows zone snapper (Rust port of DevTools' Tools.SnapIt companion)"
+description = "SnapIt — Windows zone snapper (Rust port of Warp Station's Tools.SnapIt companion)"
 license = "GPL-3.0"
 
 [[bin]]

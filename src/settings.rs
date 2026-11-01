@@ -1,7 +1,7 @@
 //! SnapIt settings and layout files.
 //!
 //! These types mirror the JSON written by the .NET app
-//! (`%USERPROFILE%\.devtools\snapit`), including its quirks:
+//! (`%USERPROFILE%\.warp\snapit`), including its quirks:
 //! numbers may be written as strings, points/sizes are `"x,y"` strings,
 //! colours are `"#AARRGGBB"`, and `AreaPadding`/`BorderThickness` may be a
 //! number or a `Thickness`-style string.
@@ -545,16 +545,16 @@ pub struct ExcludedApplicationSettings {
 // Paths and loading
 // ---------------------------------------------------------------------------
 
-/// `%USERPROFILE%\.devtools` (falls back to `$HOME` for tests on Linux).
+/// `%USERPROFILE%\.warp` (falls back to `$HOME` for tests on Linux).
 pub fn user_data_root() -> PathBuf {
     std::env::var_os("USERPROFILE")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".devtools")
+        .join(".warp")
 }
 
-/// `%USERPROFILE%\.devtools\snapit` — shared with the .NET app.
+/// `%USERPROFILE%\.warp\snapit` — shared with Warp Station.
 pub fn snapit_root() -> PathBuf {
     user_data_root().join("snapit")
 }

@@ -1,7 +1,7 @@
 //! Command-line contract shared with the .NET companion.
 //!
-//! DevTools launches the companion with `--parent <pid>`; the parent watcher
-//! exits when DevTools dies. `--dump-zones` is a Rust-port extra for checking
+//! Warp Station launches the companion with `--parent <pid>`; the parent watcher
+//! exits when Warp Station dies. `--dump-zones` is a Rust-port extra for checking
 //! the layout math against the current monitor setup.
 
 use std::ffi::OsString;
@@ -26,13 +26,13 @@ USAGE:
     snapit [OPTIONS]
 
 OPTIONS:
-    --parent <PID>   Exit when the given process exits (used by DevTools)
+    --parent <PID>   Exit when the given process exits (used by Warp Station)
     --dump-zones     Print monitors and snap zones, then exit
     -h, --help       Show this help
     -V, --version    Show the version
 
 Settings and layouts are shared with the .NET app in
-%USERPROFILE%\\.devtools\\snapit.";
+%USERPROFILE%\\.warp\\snapit.";
 
 pub fn parse<I>(args: I) -> Result<Action, String>
 where
