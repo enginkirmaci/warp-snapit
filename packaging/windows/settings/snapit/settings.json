@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "enable_mouse": true,
+  "drag_by_title": false,
+  "mouse_button": "middle",
+  "mouse_drag_delay": 20,
+  "enable_hold_key": false,
+  "hold_key": "control",
+  "hold_key_behaviour": "hold_to_enable",
+  "disable_for_fullscreen": true,
+  "disable_for_modal": true,
+  "enable_automatic_window_cornering": false,
+  "run_as_admin": false,
+  "screens_layouts": {},
+  "deactivated_screens": [],
+  "mouse_hover_animation": false,
+  "theme": {
+    "highlight_color": "#C8000000",
+    "overlay_color": "#32FFFFFF",
+    "border_color": "#C8969696",
+    "border_thickness": 1,
+    "opacity": 0.6
+  }
+}
