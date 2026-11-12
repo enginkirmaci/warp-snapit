@@ -67,9 +67,10 @@ jobs:
           if (Test-Path packaging/windows/settings) {
             Copy-Item packaging/windows/settings $stage -Recurse
           }
-          Compress-Archive -Path "$stage/*" -DestinationPath "$stage.zip"
-          $hash = (Get-FileHash "$stage.zip" -Algorithm SHA256).Hash.ToLower()
-          "$hash  $(Split-Path $stage.zip -Leaf)" | Set-Content dist/SHA256SUMS
+          $zip = "$stage.zip"
+          Compress-Archive -Path "$stage/*" -DestinationPath $zip
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          "$hash  $(Split-Path $zip -Leaf)" | Set-Content dist/SHA256SUMS
 
       - uses: softprops/action-gh-release@v3
         with:
