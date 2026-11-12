@@ -1,6 +1,6 @@
 [package]
 name = "warp-snapit"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2024"
 description = "SnapIt — Windows zone snapper (Rust port of Warp Station's Tools.SnapIt companion)"
 license = "GPL-3.0"

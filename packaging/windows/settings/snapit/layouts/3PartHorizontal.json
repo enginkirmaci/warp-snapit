@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "guid": "61c00b23-5cdf-4c27-9a6d-a73693f16d47",
+  "name": "3 Part Horizontal",
+  "size": "2752,1104",
+  "layout_lines": [
+    {
+      "point": "917.3333,0",
+      "size": "0,1104",
+      "split_direction": "vertical"
+    },
+    {
+      "point": "1834.6666,0",
+      "size": "0,1104",
+      "split_direction": "vertical"
+    },
+    {
+      "point": "0,552",
+      "size": "917.3333,0",
+      "split_direction": "horizontal"
+    },
+    {
+      "point": "1834.6666,552",
+      "size": "917.3333,0",
+      "split_direction": "horizontal"
+    }
+  ],
+  "layout_overlays": [
+    {
+      "point": "0,0",
+      "size": "917.3333,1104",
+      "mini_overlay": {
+        "point": "321.06668,386.4",
+        "size": "248,331.2"
+      }
+    },
+    {
+      "point": "1834.6666,0",
+      "size": "917.3333,1104",
+      "mini_overlay": {
+        "point": "2188.5334,385.6",
+        "size": "275.2,331.2"
+      }
+    },
+    {
+      "point": "0,0",
+      "size": "1834.6666,1104",
+      "mini_overlay": {
+        "point": "666.93335,361.6",
+        "size": "308.8,380.8"
+      }
+    },
+    {
+      "point": "816.8,180",
+      "size": "1308.8,748.8",
+      "mini_overlay": {
+        "point": "1350.08,442.08",
+        "size": "295.04,224.64"
+      }
+    },
+    {
+      "point": "2123.2,-1.110223E-14",
+      "size": "628,1104",
+      "mini_overlay": {
+        "point": "2570.88,435.36",
+        "size": "126.24,245.28"
+      }
+    },
+    {
+      "point": "2.264855E-14,-0.8",
+      "size": "2123.2,1104.8",
+      "mini_overlay": {
+        "point": "1059.68,332.16",
+        "size": "206.24,437.28"
+      }
+    }
+  ],
+  "area_padding": "0"
+}
