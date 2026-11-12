@@ -1,0 +1,83 @@
+name: release
+
+# Tag the commit whose version.toml says v<version>; the job checks that and
+# publishes the portable zip. warp-snapit is Windows-only, so there is no Linux
+# job.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Check the tag against version.toml
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          actual=$(python scripts/version.py show --json | python -c 'import json,sys; print(json.load(sys.stdin)["version"])')
+          test "$tag" = "$actual" || {
+            echo "::error::version.toml says $actual, the tag says $tag"
+            exit 1
+          }
+
+      - name: Configure the kit read token
+        shell: bash
+        env:
+          KITS_READ_TOKEN: ${{ secrets.KITS_READ_TOKEN }}
+        run: |
+          if [ -z "$KITS_READ_TOKEN" ]; then
+            echo "::error::KITS_READ_TOKEN is not set; the kit git dependency cannot be fetched"
+            exit 1
+          fi
+          git config --global url."https://x-access-token:${KITS_READ_TOKEN}@github.com/".insteadOf "https://github.com/"
+
+      - name: Read the pinned channel
+        shell: bash
+        run: echo "channel=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+        id: toolchain
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo build --release
+        run: cargo build --release --locked
+
+      - name: Stage the portable zip
+        run: |
+          $version = (python scripts/version.py show --json | ConvertFrom-Json).version
+          $stage = "dist/warp-snapit-$version-windows-x64"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item target/release/warp-snapit.exe $stage
+          if (Test-Path packaging/windows/settings) {
+            Copy-Item packaging/windows/settings $stage -Recurse
+          }
+          Compress-Archive -Path "$stage/*" -DestinationPath "$stage.zip"
+          $hash = (Get-FileHash "$stage.zip" -Algorithm SHA256).Hash.ToLower()
+          "$hash  $(Split-Path $stage.zip -Leaf)" | Set-Content dist/SHA256SUMS
+
+      - uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: warp-snapit ${{ github.ref_name }}
+          body: |
+            Portable Windows build of warp-snapit ${{ github.ref_name }}.
+            Extract the zip; no installer.
+          files: |
+            dist/*-windows-x64.zip
+            dist/SHA256SUMS

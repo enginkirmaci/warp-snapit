@@ -1,19 +1,22 @@
 [package]
 name = "warp-snapit"
-version.workspace = true
-edition.workspace = true
+version = "0.1.1"
+edition = "2024"
 description = "SnapIt — Windows zone snapper (Rust port of Warp Station's Tools.SnapIt companion)"
-license.workspace = true
+license = "GPL-3.0"
+repository = "https://github.com/enginkirmaci/warp-snapit"
 publish = false
 
 [dependencies]
-anyhow = { workspace = true }
-serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 tiny-skia = { version = "0.12", default-features = false, features = ["std", "simd"] }
 
 [build-dependencies]
-warpui-kit-build = { workspace = true }
+# the kit line is pinned by tag; warp-suite's [patch] points it at kits/ in the
+# local symlinked build
+warpui-kit-build = { git = "https://github.com/enginkirmaci/warp-suite", tag = "kits-v0.1.11", package = "warpui-kit-build" }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = [

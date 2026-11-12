@@ -1,0 +1,14 @@
+# Build and packaging facts read by the suite's build tools and by the app's
+# own release workflow. Kept in the app repository so a standalone checkout has
+# everything it needs.
+[app]
+package = "warp-snapit"
+linux_skip = true
+icon_prefix = "snapit"
+notes = """
+Windows-only zone snapper (Rust port of the retired .NET Tools.SnapIt). It
+reads the same ~/.warp/snapit settings/layouts Warp Station reads; the two
+share the settings contract. Warp Station's snapit.executable setting names
+warp-snapit.exe. Ships as a portable zip with warp-snapit.exe and the default
+settings seed; there is no installer.
+"""
